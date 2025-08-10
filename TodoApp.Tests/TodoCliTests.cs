@@ -56,8 +56,9 @@ namespace TodoApp.Tests
         [TestMethod]
         public void Add_MissingName_ShowsError()
         {
-            var (stdout, _) = ConsoleTestHost.RunMain("add");
-            StringAssert.Contains(stdout, "Error: --name parameter is required");
+            var (_, stderr) = ConsoleTestHost.RunMain("add");
+            StringAssert.Contains(stderr, "--name");
+            Assert.IsTrue(stderr.IndexOf("required", StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         [TestMethod]
@@ -190,15 +191,22 @@ namespace TodoApp.Tests
         [TestMethod]
         public void Update_MissingId_ShowsError()
         {
-            var (stdout, _) = ConsoleTestHost.RunMain("update");
-            StringAssert.Contains(stdout, "Error: --id parameter is required");
+            var (_, stderr) = ConsoleTestHost.RunMain("update");
+            StringAssert.Contains(stderr, "--id");
+            Assert.IsTrue(stderr.IndexOf("required", StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         [TestMethod]
         public void Update_InvalidId_ShowsError()
         {
-            var (stdout, _) = ConsoleTestHost.RunMain("update", "--id", "X");
-            StringAssert.Contains(stdout, "Error: Invalid task ID");
+            var (_, stderr) = ConsoleTestHost.RunMain("update", "--id", "X");
+            StringAssert.Contains(stderr, "--id");
+            Assert.IsTrue(
+                stderr.IndexOf("parse", StringComparison.OrdinalIgnoreCase) >= 0
+                || stderr.IndexOf("convert", StringComparison.OrdinalIgnoreCase) >= 0
+                || stderr.IndexOf("invalid", StringComparison.OrdinalIgnoreCase) >= 0
+                || stderr.IndexOf("Int32", StringComparison.OrdinalIgnoreCase) >= 0
+            );
         }
 
         [TestMethod]
@@ -241,15 +249,22 @@ namespace TodoApp.Tests
         [TestMethod]
         public void Delete_MissingId_ShowsError()
         {
-            var (stdout, _) = ConsoleTestHost.RunMain("delete");
-            StringAssert.Contains(stdout, "Error: --id parameter is required");
+            var (_, stderr) = ConsoleTestHost.RunMain("delete");
+            StringAssert.Contains(stderr, "--id");
+            Assert.IsTrue(stderr.IndexOf("required", StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         [TestMethod]
         public void Delete_InvalidId_ShowsError()
         {
-            var (stdout, _) = ConsoleTestHost.RunMain("delete", "--id", "X");
-            StringAssert.Contains(stdout, "Error: Invalid task ID");
+            var (_, stderr) = ConsoleTestHost.RunMain("delete", "--id", "X");
+            StringAssert.Contains(stderr, "--id");
+            Assert.IsTrue(
+                stderr.IndexOf("parse", StringComparison.OrdinalIgnoreCase) >= 0
+                || stderr.IndexOf("convert", StringComparison.OrdinalIgnoreCase) >= 0
+                || stderr.IndexOf("invalid", StringComparison.OrdinalIgnoreCase) >= 0
+                || stderr.IndexOf("Int32", StringComparison.OrdinalIgnoreCase) >= 0
+            );
         }
 
         [TestMethod]
@@ -287,15 +302,22 @@ namespace TodoApp.Tests
         [TestMethod]
         public void Complete_MissingId_ShowsError()
         {
-            var (stdout, _) = ConsoleTestHost.RunMain("complete");
-            StringAssert.Contains(stdout, "Error: --id parameter is required");
+            var (_, stderr) = ConsoleTestHost.RunMain("complete");
+            StringAssert.Contains(stderr, "--id");
+            Assert.IsTrue(stderr.IndexOf("required", StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         [TestMethod]
         public void Complete_InvalidId_ShowsError()
         {
-            var (stdout, _) = ConsoleTestHost.RunMain("complete", "--id", "X");
-            StringAssert.Contains(stdout, "Error: Invalid task ID");
+            var (_, stderr) = ConsoleTestHost.RunMain("complete", "--id", "X");
+            StringAssert.Contains(stderr, "--id");
+            Assert.IsTrue(
+                stderr.IndexOf("parse", StringComparison.OrdinalIgnoreCase) >= 0
+                || stderr.IndexOf("convert", StringComparison.OrdinalIgnoreCase) >= 0
+                || stderr.IndexOf("invalid", StringComparison.OrdinalIgnoreCase) >= 0
+                || stderr.IndexOf("Int32", StringComparison.OrdinalIgnoreCase) >= 0
+            );
         }
 
         [TestMethod]
@@ -329,18 +351,26 @@ namespace TodoApp.Tests
         [TestMethod]
         public void Assign_MissingOwnerOrId_ShowsError()
         {
-            var (stdout1, _) = ConsoleTestHost.RunMain("assign", "--id", "1");
-            StringAssert.Contains(stdout1, "Error: --id and --owner parameters are required");
+            var (_, err1) = ConsoleTestHost.RunMain("assign", "--id", "1");
+            StringAssert.Contains(err1, "--owner");
+            Assert.IsTrue(err1.IndexOf("required", StringComparison.OrdinalIgnoreCase) >= 0);
 
-            var (stdout2, _) = ConsoleTestHost.RunMain("assign", "--owner", "jane");
-            StringAssert.Contains(stdout2, "Error: --id and --owner parameters are required");
+            var (_, err2) = ConsoleTestHost.RunMain("assign", "--owner", "jane");
+            StringAssert.Contains(err2, "--id");
+            Assert.IsTrue(err2.IndexOf("required", StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         [TestMethod]
         public void Assign_InvalidId_ShowsError()
         {
-            var (stdout, _) = ConsoleTestHost.RunMain("assign", "--id", "X", "--owner", "jane");
-            StringAssert.Contains(stdout, "Error: Invalid task ID");
+            var (_, stderr) = ConsoleTestHost.RunMain("assign", "--id", "X", "--owner", "jane");
+            StringAssert.Contains(stderr, "--id");
+            Assert.IsTrue(
+                stderr.IndexOf("parse", StringComparison.OrdinalIgnoreCase) >= 0
+                || stderr.IndexOf("convert", StringComparison.OrdinalIgnoreCase) >= 0
+                || stderr.IndexOf("invalid", StringComparison.OrdinalIgnoreCase) >= 0
+                || stderr.IndexOf("Int32", StringComparison.OrdinalIgnoreCase) >= 0
+            );
         }
 
         [TestMethod]

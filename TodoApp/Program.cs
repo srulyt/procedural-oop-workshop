@@ -1,4 +1,7 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using System.CommandLine;
+using System.CommandLine.Builder;
+using System.CommandLine.Parsing;
 using TodoApp.Model;
 using TodoApp.Infrastructure;
 
@@ -22,73 +25,26 @@ namespace TodoApp
                 return;
             }
 
-            // Parse command line arguments
-            if (args.Length == 0 || args[0] == "--help" || args[0] == "-h")
+            // System.CommandLine v2 beta5 API: RootCommand/Command/Option + CommandHandler
+            var root = new RootCommand("TodoApp - CLI Task Manager");
+
+            // add command
+            var add = new Command("add", "Add a new task");
+            var addName = new Option<string>("--name", "Task name");
+            addName.IsRequired = true;
+            var addOwner = new Option<string>("--owner", "Task owner");
+            addOwner.SetDefaultValue("Unassigned");
+            var addStatus = new Option<string>("--status", "Task status");
+            addStatus.SetDefaultValue("Todo");
+            var addDesc = new Option<string>("--description", "Task description");
+            addDesc.SetDefaultValue(string.Empty);
+            add.AddOption(addName);
+            add.AddOption(addOwner);
+            add.AddOption(addStatus);
+            add.AddOption(addDesc);
+
+            add.SetHandler((string name, string owner, string status, string description) =>
             {
-                // Display help
-                Console.WriteLine("TodoApp - CLI Task Manager");
-                Console.WriteLine();
-                Console.WriteLine("Usage:");
-                Console.WriteLine("  todoapp <command> [options]");
-                Console.WriteLine();
-                Console.WriteLine("Commands:");
-                Console.WriteLine("  add        Add a new task");
-                Console.WriteLine("  list       List tasks");
-                Console.WriteLine("  update     Update an existing task");
-                Console.WriteLine("  delete     Delete a task");
-                Console.WriteLine("  complete   Mark a task as complete");
-                Console.WriteLine("  assign     Assign a task to someone");
-                Console.WriteLine();
-                Console.WriteLine("Examples:");
-                Console.WriteLine("  todoapp add --name \"Fix bug\" --owner \"john\" --description \"Fix the login bug\"");
-                Console.WriteLine("  todoapp list");
-                Console.WriteLine("  todoapp list --status \"Todo\"");
-                Console.WriteLine("  todoapp list --owner \"john\"");
-                Console.WriteLine("  todoapp update --id 1 --name \"Fix critical bug\"");
-                Console.WriteLine("  todoapp delete --id 1");
-                Console.WriteLine("  todoapp complete --id 1");
-                Console.WriteLine("  todoapp assign --id 1 --owner \"jane\"");
-                return;
-            }
-
-            string command = args[0].ToLower();
-
-            // Parse arguments into dictionary
-            Dictionary<string, string> parsedArgs = new Dictionary<string, string>();
-            for (int i = 1; i < args.Length; i++)
-            {
-                if (args[i].StartsWith("--"))
-                {
-                    string key = args[i].Substring(2);
-                    if (i + 1 < args.Length && !args[i + 1].StartsWith("--"))
-                    {
-                        parsedArgs[key] = args[i + 1];
-                        i++;
-                    }
-                    else
-                    {
-                        parsedArgs[key] = "true";
-                    }
-                }
-            }
-
-            // Handle commands
-            if (command == "add")
-            {
-                // Validate required parameters
-                if (!parsedArgs.ContainsKey("name"))
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("Error: --name parameter is required");
-                    Console.ResetColor();
-                    return;
-                }
-
-                string name = parsedArgs["name"];
-                string owner = parsedArgs.ContainsKey("owner") ? parsedArgs["owner"] : "Unassigned";
-                string status = parsedArgs.ContainsKey("status") ? parsedArgs["status"] : "Todo";
-                string description = parsedArgs.ContainsKey("description") ? parsedArgs["description"] : "";
-
                 // Create new task
                 if (!TryParseStatus(status, out var statusEnum))
                 {
@@ -120,15 +76,23 @@ namespace TodoApp
                     Console.WriteLine($"Error saving task: {ex.Message}");
                     Console.ResetColor();
                 }
-            }
-            else if (command == "list")
+            }, addName, addOwner, addStatus, addDesc);
+
+            // list command
+            var list = new Command("list", "List tasks");
+            var listStatus = new Option<string>("--status", "Filter by status");
+            var listOwner = new Option<string>("--owner", "Filter by owner");
+            list.AddOption(listStatus);
+            list.AddOption(listOwner);
+
+            list.SetHandler((string status, string owner) =>
             {
                 // Filter tasks
                 var filteredTasks = repo.GetAll();
 
-                if (parsedArgs.ContainsKey("status"))
+                if (!string.IsNullOrWhiteSpace(status))
                 {
-                    string statusFilter = parsedArgs["status"];
+                    string statusFilter = status;
                     if (TryParseStatus(statusFilter, out var statusEnumFilter))
                     {
                         filteredTasks = filteredTasks.Where(t => t.Status == statusEnumFilter);
@@ -139,9 +103,9 @@ namespace TodoApp
                     }
                 }
 
-                if (parsedArgs.ContainsKey("owner"))
+                if (!string.IsNullOrEmpty(owner))
                 {
-                    string ownerFilter = parsedArgs["owner"];
+                    string ownerFilter = owner;
                     filteredTasks = filteredTasks.Where(t =>
                         (t.Owner ?? string.Empty).Equals(ownerFilter, StringComparison.OrdinalIgnoreCase));
                 }
@@ -172,54 +136,55 @@ namespace TodoApp
                 );
                 formatter.Write(taskList);
                 Console.WriteLine();
-            }
-            else if (command == "update")
-            {
-                if (!parsedArgs.ContainsKey("id"))
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("Error: --id parameter is required");
-                    Console.ResetColor();
-                    return;
-                }
+            }, listStatus, listOwner);
 
-                if (!int.TryParse(parsedArgs["id"], out int taskId))
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("Error: Invalid task ID");
-                    Console.ResetColor();
-                    return;
-                }
+            // update command
+            var update = new Command("update", "Update an existing task");
+            var updId = new Option<int>("--id", "Task ID");
+            updId.IsRequired = true;
+            var updName = new Option<string>("--name", "New name");
+            var updOwner = new Option<string>("--owner", "New owner");
+            var updStatus = new Option<string>("--status", "New status");
+            var updDesc = new Option<string>("--description", "New description");
+            update.AddOption(updId);
+            update.AddOption(updName);
+            update.AddOption(updOwner);
+            update.AddOption(updStatus);
+            update.AddOption(updDesc);
+
+            update.SetHandler((int id, string name, string owner, string status, string description) =>
+            {
+
 
                 // Find task via repository
                 TodoTask taskToUpdate;
                 try
                 {
-                    taskToUpdate = repo.Get(taskId);
+                    taskToUpdate = repo.Get(id);
                 }
                 catch
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Error: Task with ID {taskId} not found");
+                    Console.WriteLine($"Error: Task with ID {id} not found");
                     Console.ResetColor();
                     return;
                 }
 
                 // Update properties
                 bool updated = false;
-                if (parsedArgs.ContainsKey("name"))
+                if (!string.IsNullOrEmpty(name))
                 {
-                    taskToUpdate.Name = parsedArgs["name"];
+                    taskToUpdate.Name = name;
                     updated = true;
                 }
-                if (parsedArgs.ContainsKey("owner"))
+                if (!string.IsNullOrEmpty(owner))
                 {
-                    taskToUpdate.Owner = parsedArgs["owner"];
+                    taskToUpdate.Owner = owner;
                     updated = true;
                 }
-                if (parsedArgs.ContainsKey("status"))
+                if (!string.IsNullOrEmpty(status))
                 {
-                    if (!TryParseStatus(parsedArgs["status"], out var statusEnumUpdate))
+                    if (!TryParseStatus(status, out var statusEnumUpdate))
                     {
                         Console.ForegroundColor = ConsoleColor.Red;
                         Console.WriteLine("Error: Invalid status. Allowed values: Todo, In Progress, Complete");
@@ -229,9 +194,9 @@ namespace TodoApp
                     taskToUpdate.Status = statusEnumUpdate;
                     updated = true;
                 }
-                if (parsedArgs.ContainsKey("description"))
+                if (!string.IsNullOrEmpty(description))
                 {
-                    taskToUpdate.Description = parsedArgs["description"];
+                    taskToUpdate.Description = description;
                     updated = true;
                 }
 
@@ -248,7 +213,7 @@ namespace TodoApp
                 {
                     repo.Save();
                     Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"Task {taskId} updated successfully");
+                    Console.WriteLine($"Task {id} updated successfully");
                     Console.ResetColor();
                 }
                 catch (Exception ex)
@@ -257,35 +222,28 @@ namespace TodoApp
                     Console.WriteLine($"Error saving task: {ex.Message}");
                     Console.ResetColor();
                 }
-            }
-            else if (command == "delete")
-            {
-                if (!parsedArgs.ContainsKey("id"))
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("Error: --id parameter is required");
-                    Console.ResetColor();
-                    return;
-                }
+            }, updId, updName, updOwner, updStatus, updDesc);
 
-                if (!int.TryParse(parsedArgs["id"], out int taskId))
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("Error: Invalid task ID");
-                    Console.ResetColor();
-                    return;
-                }
+            // delete command
+            var delete = new Command("delete", "Delete a task");
+            var delId = new Option<int>("--id", "Task ID");
+            delId.IsRequired = true;
+            delete.AddOption(delId);
+
+            delete.SetHandler((int id) =>
+            {
+
 
                 // Find and remove task
                 TodoTask taskToDelete;
                 try
                 {
-                    taskToDelete = repo.Get(taskId);
+                    taskToDelete = repo.Get(id);
                 }
                 catch
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Error: Task with ID {taskId} not found");
+                    Console.WriteLine($"Error: Task with ID {id} not found");
                     Console.ResetColor();
                     return;
                 }
@@ -296,7 +254,7 @@ namespace TodoApp
                     repo.Delete(taskToDelete);
                     repo.Save();
                     Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"Task '{taskName}' (ID: {taskId}) deleted successfully");
+                    Console.WriteLine($"Task '{taskName}' (ID: {id}) deleted successfully");
                     Console.ResetColor();
                 }
                 catch (Exception ex)
@@ -305,35 +263,28 @@ namespace TodoApp
                     Console.WriteLine($"Error saving tasks: {ex.Message}");
                     Console.ResetColor();
                 }
-            }
-            else if (command == "complete")
-            {
-                if (!parsedArgs.ContainsKey("id"))
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("Error: --id parameter is required");
-                    Console.ResetColor();
-                    return;
-                }
+            }, delId);
 
-                if (!int.TryParse(parsedArgs["id"], out int taskId))
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("Error: Invalid task ID");
-                    Console.ResetColor();
-                    return;
-                }
+            // complete command
+            var complete = new Command("complete", "Mark a task as complete");
+            var compId = new Option<int>("--id", "Task ID");
+            compId.IsRequired = true;
+            complete.AddOption(compId);
+
+            complete.SetHandler((int id) =>
+            {
+
 
                 // Find task
                 TodoTask taskToComplete;
                 try
                 {
-                    taskToComplete = repo.Get(taskId);
+                    taskToComplete = repo.Get(id);
                 }
                 catch
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Error: Task with ID {taskId} not found");
+                    Console.WriteLine($"Error: Task with ID {id} not found");
                     Console.ResetColor();
                     return;
                 }
@@ -346,7 +297,7 @@ namespace TodoApp
                 {
                     repo.Save();
                     Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"Task '{taskName}' (ID: {taskId}) marked as complete");
+                    Console.WriteLine($"Task '{taskName}' (ID: {id}) marked as complete");
                     Console.ResetColor();
                 }
                 catch (Exception ex)
@@ -355,41 +306,37 @@ namespace TodoApp
                     Console.WriteLine($"Error saving task: {ex.Message}");
                     Console.ResetColor();
                 }
-            }
-            else if (command == "assign")
-            {
-                if (!parsedArgs.ContainsKey("id") || !parsedArgs.ContainsKey("owner"))
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("Error: --id and --owner parameters are required");
-                    Console.ResetColor();
-                    return;
-                }
+            }, compId);
 
-                if (!int.TryParse(parsedArgs["id"], out int taskId))
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("Error: Invalid task ID");
-                    Console.ResetColor();
-                    return;
-                }
+            // assign command
+            var assign = new Command("assign", "Assign a task to someone");
+            var asgId = new Option<int>("--id", "Task ID");
+            asgId.IsRequired = true;
+            var asgOwner = new Option<string>("--owner", "Owner");
+            asgOwner.IsRequired = true;
+            assign.AddOption(asgId);
+            assign.AddOption(asgOwner);
+
+            assign.SetHandler((int id, string owner) =>
+            {
+
 
                 // Find task
                 TodoTask taskToAssign;
                 try
                 {
-                    taskToAssign = repo.Get(taskId);
+                    taskToAssign = repo.Get(id);
                 }
                 catch
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Error: Task with ID {taskId} not found");
+                    Console.WriteLine($"Error: Task with ID {id} not found");
                     Console.ResetColor();
                     return;
                 }
 
                 string taskName = taskToAssign.Name ?? "";
-                string newOwner = parsedArgs["owner"];
+                string newOwner = owner;
                 taskToAssign.Owner = newOwner;
 
                 // Save to file
@@ -397,7 +344,7 @@ namespace TodoApp
                 {
                     repo.Save();
                     Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"Task '{taskName}' (ID: {taskId}) assigned to {newOwner}");
+                    Console.WriteLine($"Task '{taskName}' (ID: {id}) assigned to {newOwner}");
                     Console.ResetColor();
                 }
                 catch (Exception ex)
@@ -406,14 +353,52 @@ namespace TodoApp
                     Console.WriteLine($"Error saving task: {ex.Message}");
                     Console.ResetColor();
                 }
+            }, asgId, asgOwner);
+
+            // Register commands
+            root.AddCommand(add);
+            root.AddCommand(list);
+            root.AddCommand(update);
+            root.AddCommand(delete);
+            root.AddCommand(complete);
+            root.AddCommand(assign);
+
+            // Build parser and preserve legacy help/unknown behavior
+            var parser = new CommandLineBuilder(root).UseDefaults().Build();
+
+            if (args.Length == 0)
+            {
+                Console.WriteLine("TodoApp - CLI Task Manager");
+                parser.Invoke("--help");
+                return;
             }
-            else
+
+            // Explicit help handling for tests
+            if (args.Length == 1 && (string.Equals(args[0], "-h", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(args[0], "--help", StringComparison.OrdinalIgnoreCase)))
+            {
+                Console.WriteLine("TodoApp - CLI Task Manager");
+                parser.Invoke("--help");
+                return;
+            }
+
+            var first = args[0];
+            var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "add","list","update","delete","complete","assign","--help","-h"
+            };
+
+            if (!known.Contains(first))
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"Error: Unknown command '{command}'");
+                Console.WriteLine($"Error: Unknown command '{first}'");
                 Console.WriteLine("Use 'todoapp --help' to see available commands");
                 Console.ResetColor();
+                return;
             }
+
+            // Delegate to System.CommandLine
+            parser.Invoke(args);
         }
 
         private static bool TryParseStatus(string input, out TodoTaskStatus status)
