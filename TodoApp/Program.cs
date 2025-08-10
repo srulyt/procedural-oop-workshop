@@ -9,65 +9,18 @@ namespace TodoApp
     {
         static void Main(string[] args)
         {
-            // Application data directory setup
-            string appDataDir;
-            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
-            {
-                appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TodoApp");
-            }
-            else
-            {
-                appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".todoapp");
-            }
-
-            string dataFile = Path.Combine(appDataDir, "tasks.json");
-
-            // Ensure data directory exists
+            // Use repository for persistence
+            var repo = new TaskRepository();
             try
             {
-                if (!Directory.Exists(appDataDir))
-                {
-                    Directory.CreateDirectory(appDataDir);
-                }
+                repo.LoadData();
             }
             catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"Error creating data directory: {ex.Message}");
+                Console.WriteLine($"Error loading tasks: {ex.Message}");
                 Console.ResetColor();
                 return;
-            }
-
-            // Load existing tasks from JSON file
-            List<TodoTask> tasks = new List<TodoTask>();
-            int nextId = 1;
-
-            if (File.Exists(dataFile))
-            {
-                try
-                {
-                    string jsonContent = File.ReadAllText(dataFile);
-                    if (!string.IsNullOrWhiteSpace(jsonContent))
-                    {
-                        var options = new JsonSerializerOptions { Converters = { new JsonStringEnumConverter() } };
-                        var loadedTasks = JsonSerializer.Deserialize<List<TodoTask>>(jsonContent, options);
-                        if (loadedTasks != null)
-                        {
-                            tasks = loadedTasks;
-                            if (tasks.Count > 0)
-                            {
-                                nextId = tasks.Max(t => t.Id) + 1;
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Error loading tasks: {ex.Message}");
-                    Console.ResetColor();
-                    return;
-                }
             }
 
             // Parse command line arguments
@@ -147,21 +100,17 @@ namespace TodoApp
                 }
                 var newTask = new TodoTask
                 {
-                    Id = nextId,
+                    // Id assigned by repository
                     Name = name,
                     Owner = owner,
                     Status = statusEnum,
                     Description = description
                 };
 
-                tasks.Add(newTask);
-                nextId++;
-
-                // Save to file
                 try
                 {
-                    string jsonOutput = JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } });
-                    File.WriteAllText(dataFile, jsonOutput);
+                    repo.Add(newTask);
+                    repo.Save();
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"Task '{name}' added successfully with ID {newTask.Id}");
                     Console.ResetColor();
@@ -176,7 +125,7 @@ namespace TodoApp
             else if (command == "list")
             {
                 // Filter tasks
-                var filteredTasks = tasks.AsEnumerable();
+                var filteredTasks = repo.GetAll();
 
                 if (parsedArgs.ContainsKey("status"))
                 {
@@ -194,7 +143,7 @@ namespace TodoApp
                 if (parsedArgs.ContainsKey("owner"))
                 {
                     string ownerFilter = parsedArgs["owner"];
-                    filteredTasks = filteredTasks.Where(t => 
+                    filteredTasks = filteredTasks.Where(t =>
                         (t.Owner ?? string.Empty).Equals(ownerFilter, StringComparison.OrdinalIgnoreCase));
                 }
 
@@ -262,9 +211,13 @@ namespace TodoApp
                     return;
                 }
 
-                // Find task
-                var taskToUpdate = tasks.FirstOrDefault(t => t.Id == taskId);
-                if (taskToUpdate == null)
+                // Find task via repository
+                TodoTask taskToUpdate;
+                try
+                {
+                    taskToUpdate = repo.Get(taskId);
+                }
+                catch
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
                     Console.WriteLine($"Error: Task with ID {taskId} not found");
@@ -310,11 +263,10 @@ namespace TodoApp
                     return;
                 }
 
-                // Save to file
+                // Save to file via repository
                 try
                 {
-                    string jsonOutput = JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } });
-                    File.WriteAllText(dataFile, jsonOutput);
+                    repo.Save();
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"Task {taskId} updated successfully");
                     Console.ResetColor();
@@ -345,8 +297,12 @@ namespace TodoApp
                 }
 
                 // Find and remove task
-                var taskToDelete = tasks.FirstOrDefault(t => t.Id == taskId);
-                if (taskToDelete == null)
+                TodoTask taskToDelete;
+                try
+                {
+                    taskToDelete = repo.Get(taskId);
+                }
+                catch
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
                     Console.WriteLine($"Error: Task with ID {taskId} not found");
@@ -355,13 +311,10 @@ namespace TodoApp
                 }
 
                 string taskName = taskToDelete.Name ?? "";
-                tasks.Remove(taskToDelete);
-
-                // Save to file
                 try
                 {
-                    string jsonOutput = JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } });
-                    File.WriteAllText(dataFile, jsonOutput);
+                    repo.Delete(taskToDelete);
+                    repo.Save();
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"Task '{taskName}' (ID: {taskId}) deleted successfully");
                     Console.ResetColor();
@@ -392,8 +345,12 @@ namespace TodoApp
                 }
 
                 // Find task
-                var taskToComplete = tasks.FirstOrDefault(t => t.Id == taskId);
-                if (taskToComplete == null)
+                TodoTask taskToComplete;
+                try
+                {
+                    taskToComplete = repo.Get(taskId);
+                }
+                catch
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
                     Console.WriteLine($"Error: Task with ID {taskId} not found");
@@ -407,8 +364,7 @@ namespace TodoApp
                 // Save to file
                 try
                 {
-                    string jsonOutput = JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } });
-                    File.WriteAllText(dataFile, jsonOutput);
+                    repo.Save();
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"Task '{taskName}' (ID: {taskId}) marked as complete");
                     Console.ResetColor();
@@ -439,8 +395,12 @@ namespace TodoApp
                 }
 
                 // Find task
-                var taskToAssign = tasks.FirstOrDefault(t => t.Id == taskId);
-                if (taskToAssign == null)
+                TodoTask taskToAssign;
+                try
+                {
+                    taskToAssign = repo.Get(taskId);
+                }
+                catch
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
                     Console.WriteLine($"Error: Task with ID {taskId} not found");
@@ -455,8 +415,7 @@ namespace TodoApp
                 // Save to file
                 try
                 {
-                    string jsonOutput = JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } });
-                    File.WriteAllText(dataFile, jsonOutput);
+                    repo.Save();
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"Task '{taskName}' (ID: {taskId}) assigned to {newOwner}");
                     Console.ResetColor();
