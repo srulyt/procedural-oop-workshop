@@ -1,7 +1,6 @@
-﻿using System.Text.Json;
-using System.ComponentModel.DataAnnotations;
-using System.Text.Json.Serialization;
+﻿using System.ComponentModel.DataAnnotations;
 using TodoApp.Model;
+using TodoApp.Infrastructure;
 
 namespace TodoApp
 {
@@ -157,40 +156,21 @@ namespace TodoApp
 
                 // Display tasks in table format
                 Console.WriteLine();
-                Console.WriteLine($"{"ID",-4} {"Name",-25} {"Owner",-15} {"Status",-12} {"Description",-30}");
-                Console.WriteLine(new string('-', 90));
-
-                foreach (var task in taskList)
-                {
-                    int id = task.Id;
-                    string name = task.Name ?? "";
-                    string owner = task.Owner ?? "";
-                    string status = GetDisplayName(task.Status);
-                    string description = task.Description ?? "";
-
-                    // Truncate long strings
-                    if (name.Length > 25) name = name.Substring(0, 22) + "...";
-                    if (owner.Length > 15) owner = owner.Substring(0, 12) + "...";
-                    if (status.Length > 12) status = status.Substring(0, 9) + "...";
-                    if (description.Length > 30) description = description.Substring(0, 27) + "...";
-
-                    // Color code status
-                    if (task.Status == TodoTaskStatus.Complete)
+                var formatter = new ConsoleTableFormatter<TodoTask>(
+                    new Dictionary<string, int>
                     {
-                        Console.ForegroundColor = ConsoleColor.Green;
-                    }
-                    else if (task.Status == TodoTaskStatus.InProgress)
-                    {
-                        Console.ForegroundColor = ConsoleColor.Yellow;
-                    }
-                    else
-                    {
-                        Console.ForegroundColor = ConsoleColor.White;
-                    }
-
-                    Console.WriteLine($"{id,-4} {name,-25} {owner,-15} {status,-12} {description,-30}");
-                    Console.ResetColor();
-                }
+                        ["Id"] = 4,
+                        ["Name"] = 25,
+                        ["Owner"] = 15,
+                        ["Status"] = 12,
+                        ["Description"] = 30
+                    },
+                    colorSelector: t =>
+                        t.Status == TodoTaskStatus.Complete ? ConsoleColor.Green :
+                        t.Status == TodoTaskStatus.InProgress ? ConsoleColor.Yellow :
+                        ConsoleColor.White
+                );
+                formatter.Write(taskList);
                 Console.WriteLine();
             }
             else if (command == "update")
