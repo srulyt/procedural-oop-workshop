@@ -1,8 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Text.Json;
-using System.Linq;
+﻿using System.Text.Json;
+using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
+using TodoApp.Model;
 
 namespace TodoApp
 {
@@ -40,7 +39,7 @@ namespace TodoApp
             }
 
             // Load existing tasks from JSON file
-            List<Dictionary<string, object>> tasks = new List<Dictionary<string, object>>();
+            List<TodoTask> tasks = new List<TodoTask>();
             int nextId = 1;
 
             if (File.Exists(dataFile))
@@ -50,14 +49,14 @@ namespace TodoApp
                     string jsonContent = File.ReadAllText(dataFile);
                     if (!string.IsNullOrWhiteSpace(jsonContent))
                     {
-                        var loadedTasks = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(jsonContent);
+                        var options = new JsonSerializerOptions { Converters = { new JsonStringEnumConverter() } };
+                        var loadedTasks = JsonSerializer.Deserialize<List<TodoTask>>(jsonContent, options);
                         if (loadedTasks != null)
                         {
                             tasks = loadedTasks;
                             if (tasks.Count > 0)
                             {
-                                var maxId = tasks.Max(t => Convert.ToInt32(((JsonElement)t["Id"]).GetInt32()));
-                                nextId = maxId + 1;
+                                nextId = tasks.Max(t => t.Id) + 1;
                             }
                         }
                     }
@@ -139,13 +138,20 @@ namespace TodoApp
                 string description = parsedArgs.ContainsKey("description") ? parsedArgs["description"] : "";
 
                 // Create new task
-                var newTask = new Dictionary<string, object>
+                if (!TryParseStatus(status, out var statusEnum))
                 {
-                    ["Id"] = nextId,
-                    ["Name"] = name,
-                    ["Owner"] = owner,
-                    ["Status"] = status,
-                    ["Description"] = description
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine("Error: Invalid status. Allowed values: Todo, In Progress, Complete");
+                    Console.ResetColor();
+                    return;
+                }
+                var newTask = new TodoTask
+                {
+                    Id = nextId,
+                    Name = name,
+                    Owner = owner,
+                    Status = statusEnum,
+                    Description = description
                 };
 
                 tasks.Add(newTask);
@@ -154,10 +160,10 @@ namespace TodoApp
                 // Save to file
                 try
                 {
-                    string jsonOutput = JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true });
+                    string jsonOutput = JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } });
                     File.WriteAllText(dataFile, jsonOutput);
                     Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"Task '{name}' added successfully with ID {newTask["Id"]}");
+                    Console.WriteLine($"Task '{name}' added successfully with ID {newTask.Id}");
                     Console.ResetColor();
                 }
                 catch (Exception ex)
@@ -175,15 +181,21 @@ namespace TodoApp
                 if (parsedArgs.ContainsKey("status"))
                 {
                     string statusFilter = parsedArgs["status"];
-                    filteredTasks = filteredTasks.Where(t => 
-                        ((JsonElement)t["Status"]).GetString().Equals(statusFilter, StringComparison.OrdinalIgnoreCase));
+                    if (TryParseStatus(statusFilter, out var statusEnumFilter))
+                    {
+                        filteredTasks = filteredTasks.Where(t => t.Status == statusEnumFilter);
+                    }
+                    else
+                    {
+                        filteredTasks = Enumerable.Empty<TodoTask>();
+                    }
                 }
 
                 if (parsedArgs.ContainsKey("owner"))
                 {
                     string ownerFilter = parsedArgs["owner"];
                     filteredTasks = filteredTasks.Where(t => 
-                        ((JsonElement)t["Owner"]).GetString().Equals(ownerFilter, StringComparison.OrdinalIgnoreCase));
+                        (t.Owner ?? string.Empty).Equals(ownerFilter, StringComparison.OrdinalIgnoreCase));
                 }
 
                 var taskList = filteredTasks.ToList();
@@ -201,11 +213,11 @@ namespace TodoApp
 
                 foreach (var task in taskList)
                 {
-                    int id = ((JsonElement)task["Id"]).GetInt32();
-                    string name = ((JsonElement)task["Name"]).GetString() ?? "";
-                    string owner = ((JsonElement)task["Owner"]).GetString() ?? "";
-                    string status = ((JsonElement)task["Status"]).GetString() ?? "";
-                    string description = ((JsonElement)task["Description"]).GetString() ?? "";
+                    int id = task.Id;
+                    string name = task.Name ?? "";
+                    string owner = task.Owner ?? "";
+                    string status = GetDisplayName(task.Status);
+                    string description = task.Description ?? "";
 
                     // Truncate long strings
                     if (name.Length > 25) name = name.Substring(0, 22) + "...";
@@ -214,11 +226,11 @@ namespace TodoApp
                     if (description.Length > 30) description = description.Substring(0, 27) + "...";
 
                     // Color code status
-                    if (status.Equals("Complete", StringComparison.OrdinalIgnoreCase))
+                    if (task.Status == TodoTaskStatus.Complete)
                     {
                         Console.ForegroundColor = ConsoleColor.Green;
                     }
-                    else if (status.Equals("In Progress", StringComparison.OrdinalIgnoreCase))
+                    else if (task.Status == TodoTaskStatus.InProgress)
                     {
                         Console.ForegroundColor = ConsoleColor.Yellow;
                     }
@@ -251,7 +263,7 @@ namespace TodoApp
                 }
 
                 // Find task
-                var taskToUpdate = tasks.FirstOrDefault(t => ((JsonElement)t["Id"]).GetInt32() == taskId);
+                var taskToUpdate = tasks.FirstOrDefault(t => t.Id == taskId);
                 if (taskToUpdate == null)
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
@@ -264,22 +276,29 @@ namespace TodoApp
                 bool updated = false;
                 if (parsedArgs.ContainsKey("name"))
                 {
-                    taskToUpdate["Name"] = parsedArgs["name"];
+                    taskToUpdate.Name = parsedArgs["name"];
                     updated = true;
                 }
                 if (parsedArgs.ContainsKey("owner"))
                 {
-                    taskToUpdate["Owner"] = parsedArgs["owner"];
+                    taskToUpdate.Owner = parsedArgs["owner"];
                     updated = true;
                 }
                 if (parsedArgs.ContainsKey("status"))
                 {
-                    taskToUpdate["Status"] = parsedArgs["status"];
+                    if (!TryParseStatus(parsedArgs["status"], out var statusEnumUpdate))
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine("Error: Invalid status. Allowed values: Todo, In Progress, Complete");
+                        Console.ResetColor();
+                        return;
+                    }
+                    taskToUpdate.Status = statusEnumUpdate;
                     updated = true;
                 }
                 if (parsedArgs.ContainsKey("description"))
                 {
-                    taskToUpdate["Description"] = parsedArgs["description"];
+                    taskToUpdate.Description = parsedArgs["description"];
                     updated = true;
                 }
 
@@ -294,7 +313,7 @@ namespace TodoApp
                 // Save to file
                 try
                 {
-                    string jsonOutput = JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true });
+                    string jsonOutput = JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } });
                     File.WriteAllText(dataFile, jsonOutput);
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"Task {taskId} updated successfully");
@@ -326,7 +345,7 @@ namespace TodoApp
                 }
 
                 // Find and remove task
-                var taskToDelete = tasks.FirstOrDefault(t => ((JsonElement)t["Id"]).GetInt32() == taskId);
+                var taskToDelete = tasks.FirstOrDefault(t => t.Id == taskId);
                 if (taskToDelete == null)
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
@@ -335,13 +354,13 @@ namespace TodoApp
                     return;
                 }
 
-                string taskName = ((JsonElement)taskToDelete["Name"]).GetString() ?? "";
+                string taskName = taskToDelete.Name ?? "";
                 tasks.Remove(taskToDelete);
 
                 // Save to file
                 try
                 {
-                    string jsonOutput = JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true });
+                    string jsonOutput = JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } });
                     File.WriteAllText(dataFile, jsonOutput);
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"Task '{taskName}' (ID: {taskId}) deleted successfully");
@@ -373,7 +392,7 @@ namespace TodoApp
                 }
 
                 // Find task
-                var taskToComplete = tasks.FirstOrDefault(t => ((JsonElement)t["Id"]).GetInt32() == taskId);
+                var taskToComplete = tasks.FirstOrDefault(t => t.Id == taskId);
                 if (taskToComplete == null)
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
@@ -382,13 +401,13 @@ namespace TodoApp
                     return;
                 }
 
-                string taskName = ((JsonElement)taskToComplete["Name"]).GetString() ?? "";
-                taskToComplete["Status"] = "Complete";
+                string taskName = taskToComplete.Name ?? "";
+                taskToComplete.Status = TodoTaskStatus.Complete;
 
                 // Save to file
                 try
                 {
-                    string jsonOutput = JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true });
+                    string jsonOutput = JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } });
                     File.WriteAllText(dataFile, jsonOutput);
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"Task '{taskName}' (ID: {taskId}) marked as complete");
@@ -420,7 +439,7 @@ namespace TodoApp
                 }
 
                 // Find task
-                var taskToAssign = tasks.FirstOrDefault(t => ((JsonElement)t["Id"]).GetInt32() == taskId);
+                var taskToAssign = tasks.FirstOrDefault(t => t.Id == taskId);
                 if (taskToAssign == null)
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
@@ -429,14 +448,14 @@ namespace TodoApp
                     return;
                 }
 
-                string taskName = ((JsonElement)taskToAssign["Name"]).GetString() ?? "";
+                string taskName = taskToAssign.Name ?? "";
                 string newOwner = parsedArgs["owner"];
-                taskToAssign["Owner"] = newOwner;
+                taskToAssign.Owner = newOwner;
 
                 // Save to file
                 try
                 {
-                    string jsonOutput = JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true });
+                    string jsonOutput = JsonSerializer.Serialize(tasks, new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } });
                     File.WriteAllText(dataFile, jsonOutput);
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"Task '{taskName}' (ID: {taskId}) assigned to {newOwner}");
@@ -456,6 +475,33 @@ namespace TodoApp
                 Console.WriteLine("Use 'todoapp --help' to see available commands");
                 Console.ResetColor();
             }
+        }
+
+        private static bool TryParseStatus(string input, out TodoTaskStatus status)
+        {
+            status = TodoTaskStatus.Todo;
+            if (string.IsNullOrWhiteSpace(input)) return true;
+
+            string Norm(string s) => new string(s.Where(c => !char.IsWhiteSpace(c)).ToArray()).ToLowerInvariant();
+            var target = Norm(input);
+
+            foreach (TodoTaskStatus s in Enum.GetValues(typeof(TodoTaskStatus)))
+            {
+                var display = GetDisplayName(s);
+                if (Norm(display) == target || s.ToString().ToLowerInvariant() == target)
+                {
+                    status = s;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static string GetDisplayName(TodoTaskStatus status)
+        {
+            var mem = typeof(TodoTaskStatus).GetMember(status.ToString()).FirstOrDefault();
+            var display = mem?.GetCustomAttributes(typeof(DisplayAttribute), false).OfType<DisplayAttribute>().FirstOrDefault();
+            return display?.Name ?? status.ToString();
         }
     }
 }

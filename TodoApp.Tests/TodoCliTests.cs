@@ -157,13 +157,11 @@ namespace TodoApp.Tests
         {
             string longName = new string('N', 40);
             string longOwner = new string('O', 40);
-            string longStatus = "VeryLongStatusThatShouldBeTruncated";
             string longDesc = new string('D', 80);
 
             ConsoleTestHost.RunMain("add",
                 "--name", longName,
                 "--owner", longOwner,
-                "--status", longStatus,
                 "--description", longDesc);
 
             var (stdout, _) = ConsoleTestHost.RunMain("list");
@@ -171,12 +169,10 @@ namespace TodoApp.Tests
             // Expected truncations based on Program.cs logic
             string expName = longName.Substring(0, 22) + "...";
             string expOwner = longOwner.Substring(0, 12) + "...";
-            string expStatus = longStatus.Substring(0, 9) + "...";
             string expDesc = longDesc.Substring(0, 27) + "...";
 
             StringAssert.Contains(stdout, expName);
             StringAssert.Contains(stdout, expOwner);
-            StringAssert.Contains(stdout, expStatus);
             StringAssert.Contains(stdout, expDesc);
         }
     }
@@ -378,6 +374,46 @@ namespace TodoApp.Tests
 
             var (stdout, _) = ConsoleTestHost.RunMain("list");
             StringAssert.Contains(stdout, "Error loading tasks:");
+        }
+    }
+
+    [TestClass]
+    public class StatusValidationTests
+    {
+        [TestInitialize]
+        public void Setup() => DataSandbox.ClearTasks();
+
+        [TestMethod]
+        public void Status_Validation_AddAndUpdate()
+        {
+            // Valid adds with allowed statuses
+            var (ok1, _) = ConsoleTestHost.RunMain("add", "--name", "A1", "--status", "Todo");
+            StringAssert.Contains(ok1, "added successfully");
+
+            var (ok2, _) = ConsoleTestHost.RunMain("add", "--name", "A2", "--status", "In Progress");
+            StringAssert.Contains(ok2, "added successfully");
+
+            var (ok3, _) = ConsoleTestHost.RunMain("add", "--name", "A3", "--status", "Complete");
+            StringAssert.Contains(ok3, "added successfully");
+
+            var (listOut, _) = ConsoleTestHost.RunMain("list");
+            StringAssert.Contains(listOut, "Todo");
+            StringAssert.Contains(listOut, "In Progress");
+            StringAssert.Contains(listOut, "Complete");
+
+            // Invalid add status
+            var (badAdd, _) = ConsoleTestHost.RunMain("add", "--name", "Bad", "--status", "NotAStatus");
+            StringAssert.Contains(badAdd, "Error: Invalid status");
+
+            // Valid update to Complete
+            var (updOk, _) = ConsoleTestHost.RunMain("update", "--id", "1", "--status", "Complete");
+            StringAssert.Contains(updOk, "updated successfully");
+            var (listAfterUpd, _) = ConsoleTestHost.RunMain("list");
+            StringAssert.Contains(listAfterUpd, "Complete");
+
+            // Invalid update status
+            var (updBad, _) = ConsoleTestHost.RunMain("update", "--id", "2", "--status", "NotAStatus");
+            StringAssert.Contains(updBad, "Error: Invalid status");
         }
     }
 }
