@@ -1,9 +1,10 @@
-﻿using System.ComponentModel.DataAnnotations;
-using System.CommandLine;
+﻿using System.CommandLine;
 using System.CommandLine.Builder;
 using System.CommandLine.Parsing;
 using TodoApp.Model;
 using TodoApp.Infrastructure;
+using TodoApp.Services;
+using TodoApp.Data;
 
 namespace TodoApp
 {
@@ -11,19 +12,8 @@ namespace TodoApp
     {
         static void Main(string[] args)
         {
-            // Use repository for persistence
-            var repo = new TaskRepository();
-            try
-            {
-                repo.LoadData();
-            }
-            catch (Exception ex)
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"Error loading tasks: {ex.Message}");
-                Console.ResetColor();
-                return;
-            }
+            // Service factory so data loads and errors surface within command execution
+            Func<ITodoService> svcFactory = () => new TodoService(new TaskRepository(), new TodoStatusParser());
 
             // System.CommandLine v2 beta5 API: RootCommand/Command/Option + CommandHandler
             var root = new RootCommand("TodoApp - CLI Task Manager");
@@ -45,37 +35,11 @@ namespace TodoApp
 
             add.SetHandler((string name, string owner, string status, string description) =>
             {
-                // Create new task
-                if (!TryParseStatus(status, out var statusEnum))
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("Error: Invalid status. Allowed values: Todo, In Progress, Complete");
-                    Console.ResetColor();
-                    return;
-                }
-                var newTask = new TodoTask
-                {
-                    // Id assigned by repository
-                    Name = name,
-                    Owner = owner,
-                    Status = statusEnum,
-                    Description = description
-                };
-
-                try
-                {
-                    repo.Add(newTask);
-                    repo.Save();
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"Task '{name}' added successfully with ID {newTask.Id}");
-                    Console.ResetColor();
-                }
-                catch (Exception ex)
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Error saving task: {ex.Message}");
-                    Console.ResetColor();
-                }
+                var svc = svcFactory();
+                var newTask = svc.AddTask(name, owner, status, description);
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"Task '{newTask.Name}' added successfully with ID {newTask.Id}");
+                Console.ResetColor();
             }, addName, addOwner, addStatus, addDesc);
 
             // list command
@@ -87,30 +51,8 @@ namespace TodoApp
 
             list.SetHandler((string status, string owner) =>
             {
-                // Filter tasks
-                var filteredTasks = repo.GetAll();
-
-                if (!string.IsNullOrWhiteSpace(status))
-                {
-                    string statusFilter = status;
-                    if (TryParseStatus(statusFilter, out var statusEnumFilter))
-                    {
-                        filteredTasks = filteredTasks.Where(t => t.Status == statusEnumFilter);
-                    }
-                    else
-                    {
-                        filteredTasks = Enumerable.Empty<TodoTask>();
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(owner))
-                {
-                    string ownerFilter = owner;
-                    filteredTasks = filteredTasks.Where(t =>
-                        (t.Owner ?? string.Empty).Equals(ownerFilter, StringComparison.OrdinalIgnoreCase));
-                }
-
-                var taskList = filteredTasks.ToList();
+                var svc = svcFactory();
+                var taskList = svc.ListTasks(status, owner).ToList();
 
                 if (taskList.Count == 0)
                 {
@@ -154,74 +96,18 @@ namespace TodoApp
 
             update.SetHandler((int id, string name, string owner, string status, string description) =>
             {
-
-
-                // Find task via repository
-                TodoTask taskToUpdate;
-                try
-                {
-                    taskToUpdate = repo.Get(id);
-                }
-                catch
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Error: Task with ID {id} not found");
-                    Console.ResetColor();
-                    return;
-                }
-
-                // Update properties
-                bool updated = false;
-                if (!string.IsNullOrEmpty(name))
-                {
-                    taskToUpdate.Name = name;
-                    updated = true;
-                }
-                if (!string.IsNullOrEmpty(owner))
-                {
-                    taskToUpdate.Owner = owner;
-                    updated = true;
-                }
-                if (!string.IsNullOrEmpty(status))
-                {
-                    if (!TryParseStatus(status, out var statusEnumUpdate))
-                    {
-                        Console.ForegroundColor = ConsoleColor.Red;
-                        Console.WriteLine("Error: Invalid status. Allowed values: Todo, In Progress, Complete");
-                        Console.ResetColor();
-                        return;
-                    }
-                    taskToUpdate.Status = statusEnumUpdate;
-                    updated = true;
-                }
-                if (!string.IsNullOrEmpty(description))
-                {
-                    taskToUpdate.Description = description;
-                    updated = true;
-                }
-
-                if (!updated)
+                var svc = svcFactory();
+                var changed = svc.UpdateTask(id, name, owner, status, description);
+                if (!changed)
                 {
                     Console.ForegroundColor = ConsoleColor.Yellow;
                     Console.WriteLine("Warning: No properties specified to update");
                     Console.ResetColor();
                     return;
                 }
-
-                // Save to file via repository
-                try
-                {
-                    repo.Save();
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"Task {id} updated successfully");
-                    Console.ResetColor();
-                }
-                catch (Exception ex)
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Error saving task: {ex.Message}");
-                    Console.ResetColor();
-                }
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"Task {id} updated successfully");
+                Console.ResetColor();
             }, updId, updName, updOwner, updStatus, updDesc);
 
             // delete command
@@ -232,37 +118,12 @@ namespace TodoApp
 
             delete.SetHandler((int id) =>
             {
-
-
-                // Find and remove task
-                TodoTask taskToDelete;
-                try
-                {
-                    taskToDelete = repo.Get(id);
-                }
-                catch
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Error: Task with ID {id} not found");
-                    Console.ResetColor();
-                    return;
-                }
-
+                var svc = svcFactory();
+                var taskToDelete = svc.DeleteTask(id);
                 string taskName = taskToDelete.Name ?? "";
-                try
-                {
-                    repo.Delete(taskToDelete);
-                    repo.Save();
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"Task '{taskName}' (ID: {id}) deleted successfully");
-                    Console.ResetColor();
-                }
-                catch (Exception ex)
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Error saving tasks: {ex.Message}");
-                    Console.ResetColor();
-                }
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"Task '{taskName}' (ID: {id}) deleted successfully");
+                Console.ResetColor();
             }, delId);
 
             // complete command
@@ -273,39 +134,12 @@ namespace TodoApp
 
             complete.SetHandler((int id) =>
             {
-
-
-                // Find task
-                TodoTask taskToComplete;
-                try
-                {
-                    taskToComplete = repo.Get(id);
-                }
-                catch
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Error: Task with ID {id} not found");
-                    Console.ResetColor();
-                    return;
-                }
-
+                var svc = svcFactory();
+                var taskToComplete = svc.CompleteTask(id);
                 string taskName = taskToComplete.Name ?? "";
-                taskToComplete.Status = TodoTaskStatus.Complete;
-
-                // Save to file
-                try
-                {
-                    repo.Save();
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"Task '{taskName}' (ID: {id}) marked as complete");
-                    Console.ResetColor();
-                }
-                catch (Exception ex)
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Error saving task: {ex.Message}");
-                    Console.ResetColor();
-                }
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"Task '{taskName}' (ID: {id}) marked as complete");
+                Console.ResetColor();
             }, compId);
 
             // assign command
@@ -319,40 +153,13 @@ namespace TodoApp
 
             assign.SetHandler((int id, string owner) =>
             {
-
-
-                // Find task
-                TodoTask taskToAssign;
-                try
-                {
-                    taskToAssign = repo.Get(id);
-                }
-                catch
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Error: Task with ID {id} not found");
-                    Console.ResetColor();
-                    return;
-                }
-
+                var svc = svcFactory();
+                var taskToAssign = svc.AssignOwner(id, owner);
                 string taskName = taskToAssign.Name ?? "";
                 string newOwner = owner;
-                taskToAssign.Owner = newOwner;
-
-                // Save to file
-                try
-                {
-                    repo.Save();
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"Task '{taskName}' (ID: {id}) assigned to {newOwner}");
-                    Console.ResetColor();
-                }
-                catch (Exception ex)
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Error saving task: {ex.Message}");
-                    Console.ResetColor();
-                }
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"Task '{taskName}' (ID: {id}) assigned to {newOwner}");
+                Console.ResetColor();
             }, asgId, asgOwner);
 
             // Register commands
@@ -363,8 +170,22 @@ namespace TodoApp
             root.AddCommand(complete);
             root.AddCommand(assign);
 
-            // Build parser and preserve legacy help/unknown behavior
-            var parser = new CommandLineBuilder(root).UseDefaults().Build();
+            // Build parser with centralized exception handling for service errors
+            var parser = new CommandLineBuilder(root)
+                .UseDefaults()
+                .UseExceptionHandler((ex, context) =>
+                {
+                    if (ex is TodoValidationException || ex is NotFoundException || ex is PersistenceException)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine(ex.Message);
+                        Console.ResetColor();
+                        context.ExitCode = 1;
+                        return;
+                    }
+                    // Let System.CommandLine handle other exceptions as usual
+                })
+                .Build();
 
             if (args.Length == 0)
             {
@@ -399,33 +220,6 @@ namespace TodoApp
 
             // Delegate to System.CommandLine
             parser.Invoke(args);
-        }
-
-        private static bool TryParseStatus(string input, out TodoTaskStatus status)
-        {
-            status = TodoTaskStatus.Todo;
-            if (string.IsNullOrWhiteSpace(input)) return true;
-
-            string Norm(string s) => new string(s.Where(c => !char.IsWhiteSpace(c)).ToArray()).ToLowerInvariant();
-            var target = Norm(input);
-
-            foreach (TodoTaskStatus s in Enum.GetValues(typeof(TodoTaskStatus)))
-            {
-                var display = GetDisplayName(s);
-                if (Norm(display) == target || s.ToString().ToLowerInvariant() == target)
-                {
-                    status = s;
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        private static string GetDisplayName(TodoTaskStatus status)
-        {
-            var mem = typeof(TodoTaskStatus).GetMember(status.ToString()).FirstOrDefault();
-            var display = mem?.GetCustomAttributes(typeof(DisplayAttribute), false).OfType<DisplayAttribute>().FirstOrDefault();
-            return display?.Name ?? status.ToString();
         }
     }
 }
