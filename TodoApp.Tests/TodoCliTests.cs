@@ -39,11 +39,16 @@ namespace TodoApp.Tests
         public void Setup() => DataSandbox.ClearTasks();
 
         [TestMethod]
-        public void UnknownCommand_ShowsErrorAndHint()
+        public void UnknownCommand_ShowsBuiltInHelpMessage()
         {
             var (stdout, _) = ConsoleTestHost.RunMain("foo");
-            StringAssert.Contains(stdout, "Error: Unknown command 'foo'");
-            StringAssert.Contains(stdout, "Use 'todoapp --help' to see available commands");
+            Assert.IsTrue(
+                stdout.IndexOf("'foo' was not matched", StringComparison.OrdinalIgnoreCase) >= 0
+                || stdout.IndexOf("Unrecognized command or argument", StringComparison.OrdinalIgnoreCase) >= 0,
+                "Expected built-in unknown command message."
+            );
+            StringAssert.Contains(stdout, "Usage:");
+            StringAssert.Contains(stdout, "Commands:");
         }
     }
 
